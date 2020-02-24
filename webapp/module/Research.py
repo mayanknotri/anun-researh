@@ -1,71 +1,54 @@
-from __future__ import division, print_function
-from io import BytesIO
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-import skfuzzy as fuzz
-import base64
+import scipy.cluster.hierarchy as sch
+from sklearn.cluster import AgglomerativeClustering
+from sklearn import tree
+from subprocess import check_call
+import random as rd
+from sklearn.metrics import confusion_matrix, accuracy_score, recall_score, precision_score
 
-matplotlib.use("agg")
 
+class CustomAHC(object):
 
-class FuzzyCMeans(object):
-
-    def __init__(self, filename, n_cluster):
-        self.dataset = pd.read_excel(filename)
+    def __init__(self, filename, n_cluster=4):
+        self.dataset_raw = pd.read_excel(filename)
+        self.dataset = self.dataset_raw[["BookingMonth", "DestinationCity", "Product", "GrossWt", "VolumeWt"]]
+        self.dataset.columns = ["M01", "M02", "M03", "M04", "M05"]
+        self.serial_numbers = [x for x in self.dataset_raw["SNo"]]
         self.n_cluster = n_cluster
-        self.data_transform = pd.DataFrame()
-        self.base64Image = None
-        self.fig = None
+        self.X = None
+        self.labels = list()
+        self.count_labels = list()
 
     def transform(self):
-        df = self.dataset[['BookingMonth', 'DestinationCity', 'Product', 'GrossWt', 'VolumeWt']]
-        df = df.dropna(axis=0, how='any')
-        df.columns = ['BookingMonth', 'DestinationCity', 'Product', 'Gross', 'Volume']
-        df.loc[df['Product'] == 'REGPACK', 'Product'] = 2
-        df.loc[df['Product'] == 'ONEPACK', 'Product'] = 1
-        self.data_transform = df
-        return self.data_transform
+        d = self.dataset.fillna(0)
+        result = list()
+        for i, row in d.iterrows():
+            v1 = 0
+            v2 = 0
+            for x in range(1, 3):
+                v1 += row[f"M0{x}"]
+            for x in range(4, 6):
+                v2 += row[f"M0{x}"]
+            result.append([(v1 * (10 + rd.random()) / 2), (v2 * (10 + rd.random()) / 2)])
+        self.X = pd.DataFrame(result).to_numpy()
+        return pd.DataFrame(self.X)
 
-    def clustering(self):
-        colors = ['b', 'orange', 'g', 'r', 'c', 'm', 'y', 'k', 'Brown', 'ForestGreen']
+    def get_cluster(self):
+        model = AgglomerativeClustering(n_clusters=self.n_cluster, affinity='euclidean', linkage='single')
+        model.fit(self.X)
+        self.labels = model.labels_
+        return model
 
-        # Generate test data
-        np.random.seed(42)  # Set seed for reproducibility
-        apts = np.zeros(1)
-        bpts = np.zeros(1)
-        cpts = np.zeros(1)
-        dpts = np.zeros(1)
-        epts = np.zeros(1)
-
-        for i, x in self.data_transform.iterrows():
-            apts = np.hstack((apts, np.random.standard_normal(100) * x['BookingMonth']))
-            bpts = np.hstack((bpts, np.random.standard_normal(100) * x['DestinationCity']))
-            cpts = np.hstack((cpts, np.random.standard_normal(100) * x['Product']))
-            dpts = np.hstack((dpts, np.random.standard_normal(100) * x['Gross']))
-            epts = np.hstack((epts, np.random.standard_normal(100) * x['Volume']))
-
-        # Visualize the test data
-        alldata = np.vstack((apts, bpts, cpts, dpts, epts))
-
-        n_cluster = 4
-        cntr, u_orig, u0, d, jm, p, fpc = fuzz.cluster.cmeans(data=alldata, c=n_cluster,
-                                                              m=2, error=0.005, maxiter=100)
-
-        # Show 3-cluster model
-        fig2, ax2 = plt.subplots()
-        ax2.set_title('Trained model')
-        symbols = ['o', 'x', 's', 'x', 'x', 'd']
-        for j in range(n_cluster):
-            ax2.plot(alldata[0, u_orig.argmax(axis=0) == j],
-                     alldata[1, u_orig.argmax(axis=0) == j], symbols[j],
-                     label='Cluster ' + str(j))
-        self.fig = fig2
-
-    def get_image(self):
-        fig_file = BytesIO()
-        self.fig.savefig(fig_file, format='png')
-        fig_file.seek(0)  # rewind to beginning of file
-        self.base64Image = base64.b64encode(fig_file.getvalue())
-        return self.base64Image
+    def get_result(self):
+        list_df = list()
+        list_cluster_label = list()
+        self.dataset_raw["Label"] = self.labels
+        count_label = list()
+        for i in range(self.n_cluster):
+            df = self.dataset_raw[self.dataset_raw["Label"] == i]
+            list_df.append(df)
+            list_cluster_label.append(f"Cluster {i}")
+            count_label.append(len(df))
+        self.count_labels = count_label
+        return list_df, list_cluster_label
